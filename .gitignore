@@ -1,0 +1,19 @@
+# Generated Vivado projects and build products
+/Nascom2_mega65/
+/Nascom2_mega65_r3/
+.Xil/
+xsim.dir/
+*.jou
+*.log
+*.str
+*.pb
+*.wdb
+*.bit
+*.dcp
+*.rpt
+*.rpx
+*.ltx
+*.backup.*
+*~
+.DS_Store
+Thumbs.db

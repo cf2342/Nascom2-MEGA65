@@ -92,7 +92,13 @@ ENTITY Mega65_Nascom2_R3 IS
         sd2reset : OUT STD_LOGIC;
         sd2MISO : IN STD_LOGIC;
         sd2MOSI : OUT STD_LOGIC;
-        sd2CD : IN STD_LOGIC
+        sd2CD : IN STD_LOGIC;
+
+        sdClock : OUT STD_LOGIC;
+        sdreset : OUT STD_LOGIC;
+        sdMISO : IN STD_LOGIC;
+        sdMOSI : OUT STD_LOGIC;
+        sdCD : IN STD_LOGIC
     );
 END ENTITY Mega65_Nascom2_R3;
 
@@ -215,6 +221,11 @@ BEGIN
             sd2MISO => sd2MISO,
             sd2MOSI => sd2MOSI,
             sd2CD => sd2CD,
-            sd2_dat => OPEN
+            sd2_dat => OPEN,
+            sdClock => sdClock,
+            sdreset => sdreset,
+            sdMISO => sdMISO,
+            sdMOSI => sdMOSI,
+            sdCD => sdCD
         );
 END ARCHITECTURE rtl;

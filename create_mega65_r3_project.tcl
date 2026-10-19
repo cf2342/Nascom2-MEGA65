@@ -10,6 +10,11 @@ if {[info exists ::env(NASCOM2_R3_PROJECT_DIR)] && $::env(NASCOM2_R3_PROJECT_DIR
 set src_root [file join $script_dir Nascom2.srcs sources_1 new]
 set rtl_root [file join $script_dir Nascom2.rtl]
 set constr_file [file join $script_dir Nascom2.srcs constrs_1 new mega65_nascom2_r3_constraints.xdc]
+set vfat_pkg [file join $src_root vfat_name_pkg.vhd]
+
+if {![file exists $vfat_pkg]} {
+    error "Required R3 source is missing: $vfat_pkg"
+}
 
 set mega65_part xc7a200tfbg484-2
 
@@ -18,7 +23,15 @@ set_property target_language VHDL [current_project]
 set_property simulator_language Mixed [current_project]
 
 add_files -fileset sources_1 -norecurse [glob -nocomplain [file join $rtl_root *.vhd]]
-add_files -fileset sources_1 -norecurse [glob -nocomplain [file join $src_root *.vhd]]
+# sd_file_pkg depends on vfat_name_pkg.  Add the package explicitly so a newly
+# created R3 project cannot silently omit it when the source set grows.
+add_files -fileset sources_1 -norecurse $vfat_pkg
+set src_files [glob -nocomplain [file join $src_root *.vhd]]
+set vfat_index [lsearch -exact $src_files $vfat_pkg]
+if {$vfat_index >= 0} {
+    set src_files [lreplace $src_files $vfat_index $vfat_index]
+}
+add_files -fileset sources_1 -norecurse $src_files
 add_files -fileset sources_1 -norecurse [glob -nocomplain [file join $src_root tyto2_hdmi *.vhd]]
 set_property file_type {VHDL 2008} [get_files -of_objects [get_filesets sources_1] *.vhd]
 

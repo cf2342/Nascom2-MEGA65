@@ -116,7 +116,13 @@ ENTITY Mega65_Nascom2 IS
         sd2MISO : IN STD_LOGIC;
         sd2MOSI : OUT STD_LOGIC;
         sd2CD : IN STD_LOGIC;
-        sd2_dat : OUT STD_LOGIC_VECTOR(2 DOWNTO 1)
+        sd2_dat : OUT STD_LOGIC_VECTOR(2 DOWNTO 1);
+
+        sdClock : OUT STD_LOGIC;
+        sdreset : OUT STD_LOGIC;
+        sdMISO : IN STD_LOGIC;
+        sdMOSI : OUT STD_LOGIC;
+        sdCD : IN STD_LOGIC
     );
 END ENTITY Mega65_Nascom2;
 
@@ -194,6 +200,8 @@ ARCHITECTURE rtl OF Mega65_Nascom2 IS
             sd_cmd : INOUT STD_LOGIC;
             sd_d : INOUT STD_LOGIC_VECTOR(3 DOWNTO 0);
             sd_reset : OUT STD_LOGIC;
+            sd_controller_reset_i : IN STD_LOGIC := '0';
+            sd_init_error_o : OUT STD_LOGIC;
             network_enable_o : OUT STD_LOGIC;
             network_cpu_reset_o : OUT STD_LOGIC;
             network_dhcp_o : OUT STD_LOGIC;
@@ -243,6 +251,10 @@ ARCHITECTURE rtl OF Mega65_Nascom2 IS
     SIGNAL mega_sd_d : STD_LOGIC_VECTOR(3 DOWNTO 0);
     SIGNAL mega_sd_cclk : STD_LOGIC;
     SIGNAL mega_sd_reset_unused : STD_LOGIC;
+    SIGNAL mega_sd_cd : STD_LOGIC;
+    SIGNAL mega_sd_miso : STD_LOGIC;
+    SIGNAL mega_sd_mux_reset : STD_LOGIC;
+    SIGNAL mega_sd_init_error : STD_LOGIC;
     SIGNAL nexys_reset_btn_n : STD_LOGIC;
     SIGNAL nascom_audio_pdm_l : STD_LOGIC;
     SIGNAL nascom_audio_pdm_r : STD_LOGIC;
@@ -683,14 +695,45 @@ BEGIN
         END IF;
     END PROCESS;
 
-    -- Mega65 external SD slot in SPI mode. The Mega65 sd2reset pin is the card DAT3/CS
-    -- pin in the reference constraints, so it carries the shared core CS signal.
-    sd2Clock <= mega_sd_cclk;
-    sd2MOSI <= mega_sd_cmd;
-    sd2reset <= mega_sd_d(3);
+    -- Both physical MEGA65 SD slots share the Nascom storage controller. This
+    -- is the proven BIT90 policy: R6 prefers the rear micro-SD slot, while R3
+    -- first tries the internal tray and falls back after an init error. The
+    -- original R3 tray card-detect input is deliberately treated as unreliable.
+    sd_slots : ENTITY work.mega65_sd_slot_mux
+        GENERIC MAP (
+            PREFER_EXTERNAL => (G_BOARD /= "MEGA65_R3"),
+            INTERNAL_CD_RELIABLE => (G_BOARD /= "MEGA65_R3"),
+            RESET_CYCLES => 16
+        )
+        PORT MAP (
+            clk => CLK_IN,
+            reset => reset_button,
+            controller_init_error => mega_sd_init_error,
+            internal_cd_n => sdCD,
+            internal_miso => sdMISO,
+            internal_sclk => sdClock,
+            internal_mosi => sdMOSI,
+            internal_cs_n => sdreset,
+            external_cd_n => sd2CD,
+            external_miso => sd2MISO,
+            external_sclk => sd2Clock,
+            external_mosi => sd2MOSI,
+            external_cs_n => sd2reset,
+            controller_cd_n => mega_sd_cd,
+            controller_miso => mega_sd_miso,
+            controller_sclk => mega_sd_cclk,
+            controller_mosi => mega_sd_cmd,
+            controller_cs_n => mega_sd_d(3),
+            controller_reset => mega_sd_mux_reset,
+            external_active => OPEN
+        );
+
+    -- DAT1/DAT2 stay high in SPI mode. Keeping the core's two constant-high
+    -- outputs connected to package pins also avoids collapsing them into a
+    -- resolved internal multi-driver constant net during elaboration.
     sd2_dat(1) <= mega_sd_d(1);
     sd2_dat(2) <= mega_sd_d(2);
-    mega_sd_d(0) <= sd2MISO;
+    mega_sd_d(0) <= mega_sd_miso;
 
     -- The wrapped Nexys top expects reset_btn active-low. The Mega65 side
     -- reset button pin is treated as active-high for this wrapper.
@@ -932,10 +975,12 @@ BEGIN
             rtc_debug_last_byte_i => rtc_debug_last_byte,
             rtc_debug_addr_i => rtc_debug_addr,
             sd_cclk => mega_sd_cclk,
-            sd_cd => sd2CD,
+            sd_cd => mega_sd_cd,
             sd_cmd => mega_sd_cmd,
             sd_d => mega_sd_d,
             sd_reset => mega_sd_reset_unused,
+            sd_controller_reset_i => mega_sd_mux_reset,
+            sd_init_error_o => mega_sd_init_error,
             network_enable_o => network_enable,
             network_cpu_reset_o => network_cpu_reset,
             network_dhcp_o => network_dhcp,

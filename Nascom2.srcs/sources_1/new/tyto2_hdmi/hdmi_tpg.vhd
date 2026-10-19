@@ -18,6 +18,7 @@
 LIBRARY ieee;
 USE ieee.std_logic_1164.ALL;
 USE work.sd_file_pkg.ALL;
+USE work.vfat_name_pkg.ALL;
 
 PACKAGE hdmi_tpg_pkg IS
 
@@ -107,6 +108,7 @@ PACKAGE hdmi_tpg_pkg IS
       overlay_sd_root_total_file_count : IN INTEGER RANGE 0 TO 255;
       overlay_sd_page_valid : IN sd_page_valid_array_t;
       overlay_sd_page_name : IN sd_page_name_array_t;
+      overlay_sd_page_display_name : IN sd_page_display_name_array_t;
       overlay_sd_page_kind : IN sd_page_kind_array_t;
       overlay_fdd_mount_a_valid : IN STD_LOGIC;
       overlay_fdd_mount_a_name : IN STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -117,7 +119,7 @@ PACKAGE hdmi_tpg_pkg IS
       overlay_sd_file_load_addr_valid : IN STD_LOGIC;
       overlay_sd_file_load_addr : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
       overlay_browser_manage_mode : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-      overlay_browser_manage_name : IN STD_LOGIC_VECTOR(63 DOWNTO 0);
+      overlay_browser_manage_name : IN vfat_display_name_t;
       overlay_browser_manage_status : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
       overlay_tape_led_active : IN STD_LOGIC;
       overlay_halt_active : IN STD_LOGIC;
@@ -250,6 +252,7 @@ USE work.charrom_image_pkg.ALL;
 USE work.nascom_logo_pkg.ALL;
 USE work.help_overlay_pkg.ALL;
 USE work.sd_file_pkg.ALL;
+USE work.vfat_name_pkg.ALL;
 
 ENTITY hdmi_tpg IS
   GENERIC (
@@ -337,6 +340,7 @@ ENTITY hdmi_tpg IS
     overlay_sd_root_total_file_count : IN INTEGER RANGE 0 TO 255;
     overlay_sd_page_valid : IN sd_page_valid_array_t;
     overlay_sd_page_name : IN sd_page_name_array_t;
+    overlay_sd_page_display_name : IN sd_page_display_name_array_t;
     overlay_sd_page_kind : IN sd_page_kind_array_t;
     overlay_fdd_mount_a_valid : IN STD_LOGIC;
     overlay_fdd_mount_a_name : IN STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -347,7 +351,7 @@ ENTITY hdmi_tpg IS
     overlay_sd_file_load_addr_valid : IN STD_LOGIC;
     overlay_sd_file_load_addr : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
     overlay_browser_manage_mode : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    overlay_browser_manage_name : IN STD_LOGIC_VECTOR(63 DOWNTO 0);
+    overlay_browser_manage_name : IN vfat_display_name_t;
     overlay_browser_manage_status : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
     overlay_pmod_fault_active : IN STD_LOGIC;
     overlay_pmod_fault_pmod2 : IN STD_LOGIC;
@@ -1157,6 +1161,7 @@ BEGIN
               overlay_sd_root_total_file_count,
               overlay_sd_page_valid,
               overlay_sd_page_name,
+              overlay_sd_page_display_name,
               overlay_sd_page_kind,
               overlay_fdd_mount_a_valid,
               overlay_fdd_mount_a_name,

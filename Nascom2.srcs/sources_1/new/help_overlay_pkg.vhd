@@ -2,6 +2,7 @@ LIBRARY ieee;
 USE ieee.std_logic_1164.ALL;
 USE ieee.numeric_std.ALL;
 USE work.sd_file_pkg.ALL;
+USE work.vfat_name_pkg.ALL;
 
 PACKAGE help_overlay_pkg IS
 
@@ -55,6 +56,7 @@ PACKAGE help_overlay_pkg IS
     sd_root_total_file_count : INTEGER RANGE 0 TO 255;
     sd_page_valid : sd_page_valid_array_t;
     sd_page_name : sd_page_name_array_t;
+    sd_page_display_name : sd_page_display_name_array_t;
     sd_page_kind : sd_page_kind_array_t;
     fdd_mount_a_valid : STD_LOGIC;
     fdd_mount_a_name : STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -65,7 +67,7 @@ PACKAGE help_overlay_pkg IS
     sd_file_load_addr_valid : STD_LOGIC;
     sd_file_load_addr : STD_LOGIC_VECTOR(15 DOWNTO 0);
     browser_manage_mode : STD_LOGIC_VECTOR(2 DOWNTO 0);
-    browser_manage_name : STD_LOGIC_VECTOR(63 DOWNTO 0);
+    browser_manage_name : vfat_display_name_t;
     browser_manage_status : STD_LOGIC_VECTOR(3 DOWNTO 0);
     tape_led_active : STD_LOGIC;
     cfg_dirty : STD_LOGIC;
@@ -157,6 +159,7 @@ PACKAGE help_overlay_pkg IS
     sd_root_total_file_count : INTEGER RANGE 0 TO 255;
     sd_page_valid : sd_page_valid_array_t;
     sd_page_name : sd_page_name_array_t;
+    sd_page_display_name : sd_page_display_name_array_t;
     sd_page_kind : sd_page_kind_array_t;
     fdd_mount_a_valid : STD_LOGIC;
     fdd_mount_a_name : STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -167,7 +170,7 @@ PACKAGE help_overlay_pkg IS
     sd_file_load_addr_valid : STD_LOGIC;
     sd_file_load_addr : STD_LOGIC_VECTOR(15 DOWNTO 0);
     browser_manage_mode : STD_LOGIC_VECTOR(2 DOWNTO 0);
-    browser_manage_name : STD_LOGIC_VECTOR(63 DOWNTO 0);
+    browser_manage_name : vfat_display_name_t;
     browser_manage_status : STD_LOGIC_VECTOR(3 DOWNTO 0);
     tape_led_active : STD_LOGIC;
     cfg_dirty : STD_LOGIC;
@@ -369,6 +372,22 @@ PACKAGE BODY help_overlay_pkg IS
     RETURN s;
   END FUNCTION;
 
+  FUNCTION display_name(name_v : vfat_display_name_t) RETURN STRING IS
+    VARIABLE result_v : STRING(1 TO VFAT_DISPLAY_CHARS);
+    VARIABLE value_v : NATURAL;
+  BEGIN
+    FOR i IN 0 TO VFAT_DISPLAY_CHARS - 1 LOOP
+      value_v := to_integer(unsigned(
+        name_v(name_v'HIGH - i * 8 DOWNTO name_v'HIGH - i * 8 - 7)));
+      IF value_v >= 32 AND value_v <= 126 THEN
+        result_v(i + 1) := CHARACTER'VAL(value_v);
+      ELSE
+        result_v(i + 1) := '?';
+      END IF;
+    END LOOP;
+    RETURN result_v;
+  END FUNCTION;
+
   FUNCTION is_dsk_name(name_v : STD_LOGIC_VECTOR(87 DOWNTO 0)) RETURN BOOLEAN IS
   BEGIN
     RETURN name_v(23 DOWNTO 0) = x"44534B";
@@ -452,6 +471,7 @@ PACKAGE BODY help_overlay_pkg IS
     sd_root_total_file_count : INTEGER RANGE 0 TO 255;
     sd_page_valid : sd_page_valid_array_t;
     sd_page_name : sd_page_name_array_t;
+    sd_page_display_name : sd_page_display_name_array_t;
     sd_page_kind : sd_page_kind_array_t;
     fdd_mount_a_valid : STD_LOGIC;
     fdd_mount_a_name : STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -462,7 +482,7 @@ PACKAGE BODY help_overlay_pkg IS
     sd_file_load_addr_valid : STD_LOGIC;
     sd_file_load_addr : STD_LOGIC_VECTOR(15 DOWNTO 0);
     browser_manage_mode : STD_LOGIC_VECTOR(2 DOWNTO 0);
-    browser_manage_name : STD_LOGIC_VECTOR(63 DOWNTO 0);
+    browser_manage_name : vfat_display_name_t;
     browser_manage_status : STD_LOGIC_VECTOR(3 DOWNTO 0)
   ) RETURN text_line_t IS
     VARIABLE line : text_line_t := pad48("");
@@ -496,7 +516,7 @@ PACKAGE BODY help_overlay_pkg IS
       WHEN 3 =>
         line := pad48("  FILE NAME");
         IF cfg_fdd_enabled = '1' THEN
-          line := pad48("  FILE NAME     TYPE     MOUNT");
+          line := pad48("  FILE NAME                     TYPE     MOUNT");
         END IF;
         IF sd_read_error = '1' THEN
           line := pad48("ERR S" & hex8("000000" & sd_read_stage) & " L" & hex32(sd_read_lba) &
@@ -531,20 +551,20 @@ PACKAGE BODY help_overlay_pkg IS
         ELSE
           list_index_i := row_i - 4;
           IF sd_page_valid(list_index_i) = '1' THEN
-            line := pad48("  " & short_name_83(sd_page_name(list_index_i)));
+            line := pad48("  " & display_name(sd_page_display_name(list_index_i)));
             IF cfg_fdd_enabled = '1' AND is_dsk_name(sd_page_name(list_index_i)) THEN
               IF fdd_mount_a_valid = '1' AND fdd_mount_a_name = sd_page_name(list_index_i) AND
                   fdd_mount_b_valid = '1' AND fdd_mount_b_name = sd_page_name(list_index_i) THEN
-                line := pad48("  " & short_name_83(sd_page_name(list_index_i)) & "  " &
+                line := pad48("  " & display_name(sd_page_display_name(list_index_i)) & "  " &
                   dsk_kind_tag(sd_page_kind(list_index_i)) & " 0/1+2/3");
               ELSIF fdd_mount_a_valid = '1' AND fdd_mount_a_name = sd_page_name(list_index_i) THEN
-                line := pad48("  " & short_name_83(sd_page_name(list_index_i)) & "  " &
+                line := pad48("  " & display_name(sd_page_display_name(list_index_i)) & "  " &
                   dsk_kind_tag(sd_page_kind(list_index_i)) & " 0/1");
               ELSIF fdd_mount_b_valid = '1' AND fdd_mount_b_name = sd_page_name(list_index_i) THEN
-                line := pad48("  " & short_name_83(sd_page_name(list_index_i)) & "  " &
+                line := pad48("  " & display_name(sd_page_display_name(list_index_i)) & "  " &
                   dsk_kind_tag(sd_page_kind(list_index_i)) & " 2/3");
               ELSE
-                line := pad48("  " & short_name_83(sd_page_name(list_index_i)) & "  " &
+                line := pad48("  " & display_name(sd_page_display_name(list_index_i)) & "  " &
                   dsk_kind_tag(sd_page_kind(list_index_i)) & " ---");
               END IF;
             END IF;
@@ -555,8 +575,8 @@ PACKAGE BODY help_overlay_pkg IS
         END IF;
       WHEN 14 =>
         CASE browser_manage_mode IS
-          WHEN "001" => line := pad48("RENAME: " & save_name_8(browser_manage_name));
-          WHEN "010" => line := pad48("RENAME TO " & save_name_8(browser_manage_name) & " ?  Y/N");
+          WHEN "001" => line := pad48("RENAME: " & display_name(browser_manage_name));
+          WHEN "010" => line := pad48("RENAME TO " & display_name(browser_manage_name));
           WHEN "011" => line := pad48("DELETE SELECTED FILE?  Y/N");
           WHEN "100" => line := pad48("FILE OPERATION IN PROGRESS...");
           WHEN "101" => line := pad48("FILE OPERATION FAILED - ENTER/ESC");
@@ -565,7 +585,7 @@ PACKAGE BODY help_overlay_pkg IS
       WHEN 15 =>
         line := pad48("STATUS: WAIT NASCOM2");
         IF browser_manage_mode = "001" THEN
-          line := pad48("TYPE 1-8 CHARS  ENTER ACCEPTS  ESC CANCELS");
+          line := pad48("TYPE 1-28 CHARS  ENTER ACCEPTS  ESC CANCELS");
         ELSIF browser_manage_mode = "010" OR browser_manage_mode = "011" THEN
           line := pad48("Y CONFIRMS  N/ESC CANCELS");
         ELSIF browser_manage_mode = "100" THEN
@@ -579,6 +599,7 @@ PACKAGE BODY help_overlay_pkg IS
             WHEN x"4" => line := pad48("STATUS: READ ONLY            ENTER RETURNS");
             WHEN x"5" => line := pad48("STATUS: SD I/O ERROR         ENTER RETURNS");
             WHEN x"6" => line := pad48("STATUS: BAD FAT CHAIN        ENTER RETURNS");
+            WHEN x"7" => line := pad48("STATUS: LONG NAME TOO LONG   ENTER RETURNS");
             WHEN OTHERS => line := pad48("STATUS: ERROR                ENTER RETURNS");
           END CASE;
         ELSIF sd_read_stage = "11" THEN
@@ -1302,6 +1323,7 @@ PACKAGE BODY help_overlay_pkg IS
     sd_root_total_file_count : INTEGER RANGE 0 TO 255;
     sd_page_valid : sd_page_valid_array_t;
     sd_page_name : sd_page_name_array_t;
+    sd_page_display_name : sd_page_display_name_array_t;
     sd_page_kind : sd_page_kind_array_t;
     fdd_mount_a_valid : STD_LOGIC;
     fdd_mount_a_name : STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -1312,7 +1334,7 @@ PACKAGE BODY help_overlay_pkg IS
     sd_file_load_addr_valid : STD_LOGIC;
     sd_file_load_addr : STD_LOGIC_VECTOR(15 DOWNTO 0);
     browser_manage_mode : STD_LOGIC_VECTOR(2 DOWNTO 0);
-    browser_manage_name : STD_LOGIC_VECTOR(63 DOWNTO 0);
+    browser_manage_name : vfat_display_name_t;
     browser_manage_status : STD_LOGIC_VECTOR(3 DOWNTO 0);
     tape_led_active : STD_LOGIC;
     cfg_dirty : STD_LOGIC;
@@ -1435,6 +1457,7 @@ PACKAGE BODY help_overlay_pkg IS
           sd_root_total_file_count,
           sd_page_valid,
           sd_page_name,
+          sd_page_display_name,
           sd_page_kind,
           fdd_mount_a_valid,
           fdd_mount_a_name,
@@ -1545,6 +1568,7 @@ PACKAGE BODY help_overlay_pkg IS
     sd_root_total_file_count : INTEGER RANGE 0 TO 255;
     sd_page_valid : sd_page_valid_array_t;
     sd_page_name : sd_page_name_array_t;
+    sd_page_display_name : sd_page_display_name_array_t;
     sd_page_kind : sd_page_kind_array_t;
     fdd_mount_a_valid : STD_LOGIC;
     fdd_mount_a_name : STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -1555,7 +1579,7 @@ PACKAGE BODY help_overlay_pkg IS
     sd_file_load_addr_valid : STD_LOGIC;
     sd_file_load_addr : STD_LOGIC_VECTOR(15 DOWNTO 0);
     browser_manage_mode : STD_LOGIC_VECTOR(2 DOWNTO 0);
-    browser_manage_name : STD_LOGIC_VECTOR(63 DOWNTO 0);
+    browser_manage_name : vfat_display_name_t;
     browser_manage_status : STD_LOGIC_VECTOR(3 DOWNTO 0);
     tape_led_active : STD_LOGIC;
     cfg_dirty : STD_LOGIC;
@@ -1651,6 +1675,7 @@ PACKAGE BODY help_overlay_pkg IS
       sd_root_total_file_count,
       sd_page_valid,
       sd_page_name,
+      sd_page_display_name,
       sd_page_kind,
       fdd_mount_a_valid,
       fdd_mount_a_name,

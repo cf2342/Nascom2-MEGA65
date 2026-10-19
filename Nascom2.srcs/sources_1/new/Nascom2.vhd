@@ -24,6 +24,7 @@ USE work.basic_rom_image_pkg.ALL;
 USE work.expansion_rom_image_pkg.ALL;
 USE work.nasdos_rom_image_pkg.ALL;
 USE work.sd_file_pkg.ALL;
+USE work.vfat_name_pkg.ALL;
 USE work.tyto_utils_pkg.ALL;
 USE work.charrom_image_pkg.ALL;
 
@@ -106,6 +107,8 @@ ENTITY Nascom2_Core IS
         sd_cmd : INOUT STD_LOGIC;
         sd_d : INOUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         sd_reset : OUT STD_LOGIC;
+        sd_controller_reset_i : IN STD_LOGIC := '0';
+        sd_init_error_o : OUT STD_LOGIC;
         network_enable_o : OUT STD_LOGIC;
         network_cpu_reset_o : OUT STD_LOGIC;
         network_dhcp_o : OUT STD_LOGIC;
@@ -157,47 +160,55 @@ ARCHITECTURE Behavioral OF Nascom2_Core IS
         RETURN STD_LOGIC_VECTOR(to_unsigned(CHARACTER'POS(ch), 8));
     END FUNCTION;
 
-    FUNCTION save_name_char_from_ps2(code_v : STD_LOGIC_VECTOR(7 DOWNTO 0)) RETURN STD_LOGIC_VECTOR IS
+    FUNCTION save_name_char_from_ps2(
+        code_v : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        lower_case_v : STD_LOGIC
+    ) RETURN STD_LOGIC_VECTOR IS
+        VARIABLE result_v : STD_LOGIC_VECTOR(7 DOWNTO 0) := x"20";
     BEGIN
         CASE code_v IS
-            WHEN x"1C" => RETURN slv8('A');
-            WHEN x"32" => RETURN slv8('B');
-            WHEN x"21" => RETURN slv8('C');
-            WHEN x"23" => RETURN slv8('D');
-            WHEN x"24" => RETURN slv8('E');
-            WHEN x"2B" => RETURN slv8('F');
-            WHEN x"34" => RETURN slv8('G');
-            WHEN x"33" => RETURN slv8('H');
-            WHEN x"43" => RETURN slv8('I');
-            WHEN x"3B" => RETURN slv8('J');
-            WHEN x"42" => RETURN slv8('K');
-            WHEN x"4B" => RETURN slv8('L');
-            WHEN x"3A" => RETURN slv8('M');
-            WHEN x"31" => RETURN slv8('N');
-            WHEN x"44" => RETURN slv8('O');
-            WHEN x"4D" => RETURN slv8('P');
-            WHEN x"15" => RETURN slv8('Q');
-            WHEN x"2D" => RETURN slv8('R');
-            WHEN x"1B" => RETURN slv8('S');
-            WHEN x"2C" => RETURN slv8('T');
-            WHEN x"3C" => RETURN slv8('U');
-            WHEN x"2A" => RETURN slv8('V');
-            WHEN x"1D" => RETURN slv8('W');
-            WHEN x"22" => RETURN slv8('X');
-            WHEN x"35" => RETURN slv8('Y');
-            WHEN x"1A" => RETURN slv8('Z');
-            WHEN x"45" => RETURN slv8('0');
-            WHEN x"16" => RETURN slv8('1');
-            WHEN x"1E" => RETURN slv8('2');
-            WHEN x"26" => RETURN slv8('3');
-            WHEN x"25" => RETURN slv8('4');
-            WHEN x"2E" => RETURN slv8('5');
-            WHEN x"36" => RETURN slv8('6');
-            WHEN x"3D" => RETURN slv8('7');
-            WHEN x"3E" => RETURN slv8('8');
-            WHEN x"46" => RETURN slv8('9');
-            WHEN OTHERS => RETURN x"20";
+            WHEN x"1C" => result_v := slv8('A');
+            WHEN x"32" => result_v := slv8('B');
+            WHEN x"21" => result_v := slv8('C');
+            WHEN x"23" => result_v := slv8('D');
+            WHEN x"24" => result_v := slv8('E');
+            WHEN x"2B" => result_v := slv8('F');
+            WHEN x"34" => result_v := slv8('G');
+            WHEN x"33" => result_v := slv8('H');
+            WHEN x"43" => result_v := slv8('I');
+            WHEN x"3B" => result_v := slv8('J');
+            WHEN x"42" => result_v := slv8('K');
+            WHEN x"4B" => result_v := slv8('L');
+            WHEN x"3A" => result_v := slv8('M');
+            WHEN x"31" => result_v := slv8('N');
+            WHEN x"44" => result_v := slv8('O');
+            WHEN x"4D" => result_v := slv8('P');
+            WHEN x"15" => result_v := slv8('Q');
+            WHEN x"2D" => result_v := slv8('R');
+            WHEN x"1B" => result_v := slv8('S');
+            WHEN x"2C" => result_v := slv8('T');
+            WHEN x"3C" => result_v := slv8('U');
+            WHEN x"2A" => result_v := slv8('V');
+            WHEN x"1D" => result_v := slv8('W');
+            WHEN x"22" => result_v := slv8('X');
+            WHEN x"35" => result_v := slv8('Y');
+            WHEN x"1A" => result_v := slv8('Z');
+            WHEN x"45" => result_v := slv8('0');
+            WHEN x"16" => result_v := slv8('1');
+            WHEN x"1E" => result_v := slv8('2');
+            WHEN x"26" => result_v := slv8('3');
+            WHEN x"25" => result_v := slv8('4');
+            WHEN x"2E" => result_v := slv8('5');
+            WHEN x"36" => result_v := slv8('6');
+            WHEN x"3D" => result_v := slv8('7');
+            WHEN x"3E" => result_v := slv8('8');
+            WHEN x"46" => result_v := slv8('9');
+            WHEN OTHERS => NULL;
         END CASE;
+        IF lower_case_v = '1' AND result_v >= slv8('A') AND result_v <= slv8('Z') THEN
+            result_v := STD_LOGIC_VECTOR(UNSIGNED(result_v) + 32);
+        END IF;
+        RETURN result_v;
     END FUNCTION;
 
     FUNCTION adjust_ipv4_octet(
@@ -961,6 +972,7 @@ ARCHITECTURE Behavioral OF Nascom2_Core IS
     SIGNAL sd_selected_valid : STD_LOGIC := '0';
     SIGNAL sd_page_valid : sd_page_valid_array_t := (OTHERS => '0');
     SIGNAL sd_page_name : sd_page_name_array_t := (OTHERS => (OTHERS => '0'));
+    SIGNAL sd_page_display_name : sd_page_display_name_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL sd_page_kind : sd_page_kind_array_t := (OTHERS => SD_DSK_KIND_UNKNOWN);
     SIGNAL sd_browser_has_files : STD_LOGIC := '0';
     SIGNAL sd_selected_name : STD_LOGIC_VECTOR(87 DOWNTO 0) := (OTHERS => '0');
@@ -970,8 +982,8 @@ ARCHITECTURE Behavioral OF Nascom2_Core IS
     SIGNAL sd_selected_is_pas : STD_LOGIC := '0';
     SIGNAL sd_selected_is_dsk : STD_LOGIC := '0';
     SIGNAL ui_browser_manage_mode : browser_manage_mode_t := BROWSER_MANAGE_IDLE;
-    SIGNAL ui_browser_manage_name : STD_LOGIC_VECTOR(63 DOWNTO 0) := x"2020202020202020";
-    SIGNAL ui_browser_manage_name_len : INTEGER RANGE 0 TO 8 := 0;
+    SIGNAL ui_browser_manage_name : vfat_display_name_t := (OTHERS => '0');
+    SIGNAL ui_browser_manage_name_len : INTEGER RANGE 0 TO VFAT_DISPLAY_CHARS := 0;
     SIGNAL ui_browser_manage_old_name : STD_LOGIC_VECTOR(87 DOWNTO 0) := (OTHERS => '0');
     SIGNAL ui_browser_manage_start : STD_LOGIC := '0';
     SIGNAL ui_browser_manage_delete : STD_LOGIC := '0';
@@ -3506,7 +3518,7 @@ BEGIN
     END PROCESS;
 
     --------------------------------------------------------------------
-    -- Kleine Dateiverwaltung im SD-Browser (FAT 8.3, Basisname)
+    -- Kleine Dateiverwaltung im SD-Browser (8.3-Alias und VFAT-Langname)
     --------------------------------------------------------------------
     ui_browser_manage_mode_code <=
         "001" WHEN ui_browser_manage_mode = BROWSER_MANAGE_RENAME_EDIT ELSE
@@ -3517,8 +3529,8 @@ BEGIN
         "000";
 
     PROCESS (clk100)
-        VARIABLE name_v : STD_LOGIC_VECTOR(63 DOWNTO 0);
-        VARIABLE name_len_v : INTEGER RANGE 0 TO 8;
+        VARIABLE name_v : vfat_display_name_t;
+        VARIABLE name_len_v : INTEGER RANGE 0 TO VFAT_DISPLAY_CHARS;
         VARIABLE ch_v : STD_LOGIC_VECTOR(7 DOWNTO 0);
         VARIABLE mounted_v : BOOLEAN;
     BEGIN
@@ -3527,7 +3539,7 @@ BEGIN
 
             IF sys_reset = '1' THEN
                 ui_browser_manage_mode <= BROWSER_MANAGE_IDLE;
-                ui_browser_manage_name <= x"2020202020202020";
+                ui_browser_manage_name <= (OTHERS => '0');
                 ui_browser_manage_name_len <= 0;
                 ui_browser_manage_old_name <= (OTHERS => '0');
                 ui_browser_manage_new_name <= (OTHERS => '0');
@@ -3551,10 +3563,11 @@ BEGIN
                             IF sd_selected_valid = '1' AND sd_read_busy = '0' AND
                                 sd_manage_busy = '0' AND NOT mounted_v THEN
                                 IF ps2_extended = '0' AND ps2_code = x"2D" THEN
-                                    name_v := sd_selected_name(87 DOWNTO 24);
+                                    name_v := sd_page_display_name(ui_sd_page_row);
                                     name_len_v := 0;
-                                    FOR i IN 0 TO 7 LOOP
-                                        IF name_v(63 - (i * 8) DOWNTO 56 - (i * 8)) /= x"20" THEN
+                                    FOR i IN 0 TO VFAT_DISPLAY_CHARS - 1 LOOP
+                                        IF name_v(name_v'HIGH - (i * 8) DOWNTO
+                                            name_v'HIGH - 7 - (i * 8)) /= x"20" THEN
                                             name_len_v := i + 1;
                                         END IF;
                                     END LOOP;
@@ -3577,19 +3590,30 @@ BEGIN
                             ELSIF ps2_code = x"66" THEN
                                 IF name_len_v > 0 THEN
                                     name_len_v := name_len_v - 1;
-                                    name_v(63 - (name_len_v * 8) DOWNTO 56 - (name_len_v * 8)) := x"20";
+                                    name_v(name_v'HIGH - (name_len_v * 8) DOWNTO
+                                        name_v'HIGH - 7 - (name_len_v * 8)) := x"20";
                                     ui_browser_manage_name <= name_v;
                                     ui_browser_manage_name_len <= name_len_v;
                                 END IF;
                             ELSIF ps2_code = x"5A" THEN
                                 IF name_len_v > 0 THEN
-                                    ui_browser_manage_new_name <= name_v & ui_browser_manage_old_name(23 DOWNTO 0);
+                                    IF name_len_v <= 8 THEN
+                                        ui_browser_manage_new_name <=
+                                            name_v(name_v'HIGH DOWNTO name_v'HIGH - 63) &
+                                            ui_browser_manage_old_name(23 DOWNTO 0);
+                                    ELSE
+                                        -- VFAT rename keeps the stable short alias.  The
+                                        -- long-name entries carry the user-visible name.
+                                        ui_browser_manage_new_name <= ui_browser_manage_old_name;
+                                    END IF;
                                     ui_browser_manage_mode <= BROWSER_MANAGE_RENAME_CONFIRM;
                                 END IF;
                             ELSIF ps2_extended = '0' THEN
-                                ch_v := save_name_char_from_ps2(ps2_code);
-                                IF ch_v /= x"20" AND name_len_v < 8 THEN
-                                    name_v(63 - (name_len_v * 8) DOWNTO 56 - (name_len_v * 8)) := ch_v;
+                                ch_v := save_name_char_from_ps2(
+                                    ps2_code, nk_sh_l OR nk_sh_r);
+                                IF ch_v /= x"20" AND name_len_v < VFAT_DISPLAY_CHARS THEN
+                                    name_v(name_v'HIGH - (name_len_v * 8) DOWNTO
+                                        name_v'HIGH - 7 - (name_len_v * 8)) := ch_v;
                                     ui_browser_manage_name <= name_v;
                                     ui_browser_manage_name_len <= name_len_v + 1;
                                 END IF;
@@ -4154,7 +4178,9 @@ BEGIN
 
                         WHEN OTHERS =>
                             IF next_row_sel_v = 0 THEN
-                                ch_v := save_name_char_from_ps2(ps2_code);
+                                -- The save dialog creates an 8.3 alias directly,
+                                -- which remains uppercase for FAT compatibility.
+                                ch_v := save_name_char_from_ps2(ps2_code, '0');
                                 IF ch_v /= x"20" AND next_name_len_v < 8 THEN
                                     next_name_v((7 - next_name_len_v) * 8 + 7 DOWNTO (7 - next_name_len_v) * 8) := ch_v;
                                     next_name_len_v := next_name_len_v + 1;
@@ -7049,6 +7075,7 @@ BEGIN
             overlay_sd_root_total_file_count => sd_root_total_file_count,
             overlay_sd_page_valid => sd_page_valid,
             overlay_sd_page_name => sd_page_name,
+            overlay_sd_page_display_name => sd_page_display_name,
             overlay_sd_page_kind => sd_page_kind,
             overlay_fdd_mount_a_valid => fdd_mount_a_valid,
             overlay_fdd_mount_a_name => fdd_mount_a_name,
@@ -7191,7 +7218,7 @@ BEGIN
         )
         PORT MAP(
             clk => clk100,
-            reset => sys_reset,
+            reset => sys_reset OR sd_controller_reset_i,
             sd_cd => sd_cd_sync,
             sd_miso => sd_d(0),
             sd_sclk => sd_spi_sclk,
@@ -7230,6 +7257,7 @@ BEGIN
             browser_has_files => sd_browser_has_files,
             page_valid => sd_page_valid,
             page_name => sd_page_name,
+            page_display_name => sd_page_display_name,
             page_kind => sd_page_kind,
             selected_valid => sd_selected_valid,
             selected_name => sd_selected_name,
@@ -7239,6 +7267,8 @@ BEGIN
             manage_delete => ui_browser_manage_delete,
             manage_old_name => ui_browser_manage_old_name,
             manage_new_name => ui_browser_manage_new_name,
+            manage_long_name => ui_browser_manage_name,
+            manage_long_name_length => ui_browser_manage_name_len,
             manage_busy => sd_manage_busy,
             manage_done => sd_manage_done,
             manage_error => sd_manage_error,
@@ -7630,6 +7660,7 @@ BEGIN
 
     sd_cclk <= sd_spi_sclk;
     sd_reset <= '0';
+    sd_init_error_o <= sd_init_error;
     sd_cmd <= sd_spi_mosi;
     sd_d(0) <= 'Z';
     sd_d(1) <= '1';

@@ -162,6 +162,15 @@ set_property -dict { PACKAGE_PIN K1 IOSTANDARD LVCMOS33 } [get_ports { sd2CD }]
 set_property PULLUP true [get_ports { sd2MISO }]
 set_property PULLUP true [get_ports { sd2CD }]
 
+## MEGA65 R6 internal SD slot below the bottom cover, in SPI mode.
+set_property -dict { PACKAGE_PIN B17 IOSTANDARD LVCMOS33 } [get_ports { sdClock }]
+set_property -dict { PACKAGE_PIN B15 IOSTANDARD LVCMOS33 } [get_ports { sdreset }]
+set_property -dict { PACKAGE_PIN B18 IOSTANDARD LVCMOS33 } [get_ports { sdMISO }]
+set_property -dict { PACKAGE_PIN B16 IOSTANDARD LVCMOS33 } [get_ports { sdMOSI }]
+set_property -dict { PACKAGE_PIN D17 IOSTANDARD LVCMOS33 } [get_ports { sdCD }]
+set_property PULLUP true [get_ports { sdMISO }]
+set_property PULLUP true [get_ports { sdCD }]
+
 ## Bitstream/platform settings copied from the Mega65 reference constraints.
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE 66 [current_design]

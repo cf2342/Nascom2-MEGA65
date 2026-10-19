@@ -117,6 +117,17 @@ set_property -dict { PACKAGE_PIN K1 IOSTANDARD LVCMOS33 } [get_ports { sd2CD }]
 set_property PULLUP true [get_ports { sd2MISO }]
 set_property PULLUP true [get_ports { sd2CD }]
 
+## MEGA65 R3/R3A internal SD slot below the bottom cover, in SPI mode.
+## Original R3 boards have an unreliable card-detect connection; the RTL
+## therefore tries this slot first without depending on sdCD.
+set_property -dict { PACKAGE_PIN B17 IOSTANDARD LVCMOS33 } [get_ports { sdClock }]
+set_property -dict { PACKAGE_PIN B15 IOSTANDARD LVCMOS33 } [get_ports { sdreset }]
+set_property -dict { PACKAGE_PIN B18 IOSTANDARD LVCMOS33 } [get_ports { sdMISO }]
+set_property -dict { PACKAGE_PIN B16 IOSTANDARD LVCMOS33 } [get_ports { sdMOSI }]
+set_property -dict { PACKAGE_PIN D17 IOSTANDARD LVCMOS33 } [get_ports { sdCD }]
+set_property PULLUP true [get_ports { sdMISO }]
+set_property PULLUP true [get_ports { sdCD }]
+
 ## PMOD data pins.  Power control is handled outside the main FPGA on R3/R3A.
 set_property -dict { PACKAGE_PIN F1 IOSTANDARD LVCMOS33 } [get_ports { p1hi_rts }]
 set_property -dict { PACKAGE_PIN D1 IOSTANDARD LVCMOS33 } [get_ports { p1hi_cts }]

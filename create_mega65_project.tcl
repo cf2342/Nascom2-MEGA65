@@ -1,10 +1,12 @@
 # Create a separate Mega65 Vivado project for the Nascom2 first bring-up.
+# This intentionally does not modify Nascom2.xpr, which remains the Nexys build.
 
 set script_dir [file dirname [file normalize [info script]]]
 set project_dir [file join $script_dir Nascom2_mega65]
 set src_root [file join $script_dir Nascom2.srcs sources_1 new]
 set rtl_root [file join $script_dir Nascom2.rtl]
 set constr_file [file join $script_dir Nascom2.srcs constrs_1 new mega65_nascom2_constraints.xdc]
+set impl_constr_file [file join $script_dir Nascom2.srcs constrs_1 new mega65_nascom2_impl.xdc]
 
 set mega65_part xc7a200tfbg484-2
 
@@ -18,6 +20,8 @@ add_files -fileset sources_1 -norecurse [glob -nocomplain [file join $src_root t
 set_property file_type {VHDL 2008} [get_files -of_objects [get_filesets sources_1] *.vhd]
 
 add_files -fileset constrs_1 -norecurse $constr_file
+add_files -fileset constrs_1 -norecurse $impl_constr_file
+set_property used_in_synthesis false [get_files $impl_constr_file]
 set_property top Mega65_Nascom2 [get_filesets sources_1]
 update_compile_order -fileset sources_1
 
@@ -25,3 +29,4 @@ puts "Created Mega65 project: $project_dir/Nascom2_mega65.xpr"
 puts "Top: Mega65_Nascom2"
 puts "Part: $mega65_part"
 puts "Constraint: $constr_file"
+puts "Implementation constraint: $impl_constr_file"

@@ -5,6 +5,11 @@ MEGA65 R3/R3A and R6. It uses the current VHDL sources, including the embedded
 ROM images. No existing Vivado project, checkpoint, external ROM file or
 third-party source download is needed.
 
+The snapshot includes VFAT long-filename display and rename support. It also
+supports both MEGA65 SD-card slots: R3/R3A prefers the internal slot, while R6
+prefers the external slot, with automatic fallback to the other available
+slot.
+
 ## Requirements
 
 - AMD Vivado with support for Artix-7 `xc7a200tfbg484-2`.

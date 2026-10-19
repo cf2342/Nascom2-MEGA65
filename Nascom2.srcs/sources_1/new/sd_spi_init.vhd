@@ -4,6 +4,7 @@ USE IEEE.NUMERIC_STD.ALL;
 LIBRARY xpm;
 USE xpm.vcomponents.ALL;
 USE work.sd_file_pkg.ALL;
+USE work.vfat_name_pkg.ALL;
 
 ENTITY sd_spi_init IS
     GENERIC (
@@ -51,6 +52,7 @@ ENTITY sd_spi_init IS
         browser_has_files : OUT STD_LOGIC;
         page_valid : OUT sd_page_valid_array_t;
         page_name : OUT sd_page_name_array_t;
+        page_display_name : OUT sd_page_display_name_array_t;
         page_kind : OUT sd_page_kind_array_t;
         selected_valid : OUT STD_LOGIC;
         selected_name : OUT STD_LOGIC_VECTOR(87 DOWNTO 0);
@@ -60,6 +62,8 @@ ENTITY sd_spi_init IS
         manage_delete : IN STD_LOGIC;
         manage_old_name : IN STD_LOGIC_VECTOR(87 DOWNTO 0);
         manage_new_name : IN STD_LOGIC_VECTOR(87 DOWNTO 0);
+        manage_long_name : IN vfat_display_name_t;
+        manage_long_name_length : IN INTEGER RANGE 0 TO VFAT_DISPLAY_CHARS;
         manage_busy : OUT STD_LOGIC;
         manage_done : OUT STD_LOGIC;
         manage_error : OUT STD_LOGIC;
@@ -290,6 +294,8 @@ ARCHITECTURE rtl OF sd_spi_init IS
         SAVE_CREATE_WRITE_RENAME,
         SAVE_MANAGE_RENAME_DIR,
         SAVE_MANAGE_WRITE_RENAME,
+        SAVE_MANAGE_RENAME_LFN,
+        SAVE_MANAGE_WRITE_RENAME_LFN,
         SAVE_MANAGE_DELETE_DIR,
         SAVE_MANAGE_WRITE_DELETE_DIR,
         SAVE_MANAGE_DELETE_FAT,
@@ -334,6 +340,7 @@ ARCHITECTURE rtl OF sd_spi_init IS
     CONSTANT MANAGE_STATUS_READ_ONLY : STD_LOGIC_VECTOR(3 DOWNTO 0) := "0100";
     CONSTANT MANAGE_STATUS_IO_ERROR : STD_LOGIC_VECTOR(3 DOWNTO 0) := "0101";
     CONSTANT MANAGE_STATUS_BAD_CHAIN : STD_LOGIC_VECTOR(3 DOWNTO 0) := "0110";
+    CONSTANT MANAGE_STATUS_LFN_TOO_LONG : STD_LOGIC_VECTOR(3 DOWNTO 0) := "0111";
     CONSTANT CONFIG_SHORT_NAME : STD_LOGIC_VECTOR(87 DOWNTO 0) := x"4E32434F4E462020434647";
     CONSTANT CONFIG_STREAM_LEN_OLD : UNSIGNED(31 DOWNTO 0) := to_unsigned(8, 32);
     CONSTANT CONFIG_STREAM_LEN_RS232 : UNSIGNED(31 DOWNTO 0) := to_unsigned(9, 32);
@@ -351,6 +358,102 @@ ARCHITECTURE rtl OF sd_spi_init IS
             result_v := result_v XOR payload_i(135 - i * 8 DOWNTO 128 - i * 8);
         END LOOP;
         RETURN result_v;
+    END FUNCTION;
+
+    FUNCTION lfn_rename_byte(
+        name_i : vfat_display_name_t;
+        name_length_i : INTEGER;
+        extension_i : STD_LOGIC_VECTOR(23 DOWNTO 0);
+        checksum_i : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        extension_length_i : INTEGER;
+        full_length_i : INTEGER;
+        entry_count_i : INTEGER;
+        disk_entry_i : INTEGER;
+        byte_index_i : INTEGER)
+        RETURN STD_LOGIC_VECTOR IS
+        VARIABLE ordinal_v : INTEGER RANGE 1 TO 20;
+        VARIABLE slot_v : INTEGER RANGE 0 TO 12 := 0;
+        VARIABLE position_v : INTEGER RANGE 0 TO 259 := 0;
+        VARIABLE low_v : STD_LOGIC_VECTOR(7 DOWNTO 0) := x"FF";
+        VARIABLE high_byte_v : BOOLEAN := FALSE;
+    BEGIN
+        ordinal_v := entry_count_i - disk_entry_i;
+
+        CASE byte_index_i IS
+            WHEN 0 =>
+                low_v := STD_LOGIC_VECTOR(to_unsigned(ordinal_v, 8));
+                IF disk_entry_i = 0 THEN
+                    low_v(6) := '1';
+                END IF;
+                RETURN low_v;
+            WHEN 11 => RETURN x"0F";
+            WHEN 12 => RETURN x"00";
+            WHEN 13 => RETURN checksum_i;
+            WHEN 26 | 27 => RETURN x"00";
+            WHEN 1 | 2 => slot_v := 0; high_byte_v := (byte_index_i MOD 2) = 0;
+            WHEN 3 | 4 => slot_v := 1; high_byte_v := (byte_index_i MOD 2) = 0;
+            WHEN 5 | 6 => slot_v := 2; high_byte_v := (byte_index_i MOD 2) = 0;
+            WHEN 7 | 8 => slot_v := 3; high_byte_v := (byte_index_i MOD 2) = 0;
+            WHEN 9 | 10 => slot_v := 4; high_byte_v := (byte_index_i MOD 2) = 0;
+            WHEN 14 | 15 => slot_v := 5; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN 16 | 17 => slot_v := 6; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN 18 | 19 => slot_v := 7; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN 20 | 21 => slot_v := 8; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN 22 | 23 => slot_v := 9; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN 24 | 25 => slot_v := 10; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN 28 | 29 => slot_v := 11; high_byte_v := (byte_index_i MOD 2) = 1;
+            WHEN OTHERS => slot_v := 12; high_byte_v := (byte_index_i MOD 2) = 1;
+        END CASE;
+
+        position_v := (ordinal_v - 1) * 13 + slot_v;
+        IF position_v < name_length_i THEN
+            IF high_byte_v THEN
+                RETURN x"00";
+            END IF;
+            CASE position_v IS
+                WHEN 0 => RETURN name_i(223 DOWNTO 216);
+                WHEN 1 => RETURN name_i(215 DOWNTO 208);
+                WHEN 2 => RETURN name_i(207 DOWNTO 200);
+                WHEN 3 => RETURN name_i(199 DOWNTO 192);
+                WHEN 4 => RETURN name_i(191 DOWNTO 184);
+                WHEN 5 => RETURN name_i(183 DOWNTO 176);
+                WHEN 6 => RETURN name_i(175 DOWNTO 168);
+                WHEN 7 => RETURN name_i(167 DOWNTO 160);
+                WHEN 8 => RETURN name_i(159 DOWNTO 152);
+                WHEN 9 => RETURN name_i(151 DOWNTO 144);
+                WHEN 10 => RETURN name_i(143 DOWNTO 136);
+                WHEN 11 => RETURN name_i(135 DOWNTO 128);
+                WHEN 12 => RETURN name_i(127 DOWNTO 120);
+                WHEN 13 => RETURN name_i(119 DOWNTO 112);
+                WHEN 14 => RETURN name_i(111 DOWNTO 104);
+                WHEN 15 => RETURN name_i(103 DOWNTO 96);
+                WHEN 16 => RETURN name_i(95 DOWNTO 88);
+                WHEN 17 => RETURN name_i(87 DOWNTO 80);
+                WHEN 18 => RETURN name_i(79 DOWNTO 72);
+                WHEN 19 => RETURN name_i(71 DOWNTO 64);
+                WHEN 20 => RETURN name_i(63 DOWNTO 56);
+                WHEN 21 => RETURN name_i(55 DOWNTO 48);
+                WHEN 22 => RETURN name_i(47 DOWNTO 40);
+                WHEN 23 => RETURN name_i(39 DOWNTO 32);
+                WHEN 24 => RETURN name_i(31 DOWNTO 24);
+                WHEN 25 => RETURN name_i(23 DOWNTO 16);
+                WHEN 26 => RETURN name_i(15 DOWNTO 8);
+                WHEN 27 => RETURN name_i(7 DOWNTO 0);
+                WHEN OTHERS => RETURN x"FF";
+            END CASE;
+        ELSIF extension_length_i > 0 AND position_v = name_length_i THEN
+            IF high_byte_v THEN RETURN x"00"; ELSE RETURN x"2E"; END IF;
+        ELSIF extension_length_i > 0 AND position_v = name_length_i + 1 THEN
+            IF high_byte_v THEN RETURN x"00"; ELSE RETURN extension_i(23 DOWNTO 16); END IF;
+        ELSIF extension_length_i > 1 AND position_v = name_length_i + 2 THEN
+            IF high_byte_v THEN RETURN x"00"; ELSE RETURN extension_i(15 DOWNTO 8); END IF;
+        ELSIF extension_length_i > 2 AND position_v = name_length_i + 3 THEN
+            IF high_byte_v THEN RETURN x"00"; ELSE RETURN extension_i(7 DOWNTO 0); END IF;
+        ELSIF position_v = full_length_i THEN
+            RETURN x"00";
+        ELSE
+            RETURN x"FF";
+        END IF;
     END FUNCTION;
 
     --------------------------------------------------------------------
@@ -426,11 +529,13 @@ ARCHITECTURE rtl OF sd_spi_init IS
     SIGNAL root_file_count_reg : INTEGER RANGE 0 TO SD_BROWSER_MAX_FILES := 0;
     SIGNAL root_total_file_count_reg : INTEGER RANGE 0 TO 255 := 0;
     SIGNAL file_name_reg : sd_name_array_t := (OTHERS => (OTHERS => '0'));
+    SIGNAL file_display_name_reg : sd_display_name_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL file_cluster_reg : sd_cluster_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL file_size_reg : sd_size_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL file_kind_reg : sd_kind_array_t := (OTHERS => SD_DSK_KIND_UNKNOWN);
     ATTRIBUTE ram_style : STRING;
     ATTRIBUTE ram_style OF file_name_reg : SIGNAL IS "block";
+    ATTRIBUTE ram_style OF file_display_name_reg : SIGNAL IS "block";
     ATTRIBUTE ram_style OF file_cluster_reg : SIGNAL IS "block";
     ATTRIBUTE ram_style OF file_size_reg : SIGNAL IS "block";
     SIGNAL browser_cache_valid_reg : STD_LOGIC := '0';
@@ -448,6 +553,7 @@ ARCHITECTURE rtl OF sd_spi_init IS
     SIGNAL reload_match_index_reg : INTEGER RANGE 0 TO SD_BROWSER_MAX_FILES := 0;
     SIGNAL page_valid_reg : sd_page_valid_array_t := (OTHERS => '0');
     SIGNAL page_name_reg : sd_page_name_array_t := (OTHERS => (OTHERS => '0'));
+    SIGNAL page_display_name_reg : sd_page_display_name_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL page_cluster_reg : sd_page_cluster_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL page_size_reg : sd_page_size_array_t := (OTHERS => (OTHERS => '0'));
     SIGNAL page_kind_reg : sd_page_kind_array_t := (OTHERS => SD_DSK_KIND_UNKNOWN);
@@ -461,9 +567,14 @@ ARCHITECTURE rtl OF sd_spi_init IS
     SIGNAL selected_name_reg : STD_LOGIC_VECTOR(87 DOWNTO 0) := (OTHERS => '0');
     SIGNAL selected_cluster_reg : STD_LOGIC_VECTOR(31 DOWNTO 0) := (OTHERS => '0');
     SIGNAL selected_size_reg : STD_LOGIC_VECTOR(31 DOWNTO 0) := (OTHERS => '0');
+    SIGNAL lfn_byte_valid_reg, lfn_clear_reg : STD_LOGIC := '0';
+    SIGNAL lfn_byte_index_reg : INTEGER RANGE 0 TO 31 := 0;
+    SIGNAL lfn_byte_data_reg : STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+    SIGNAL lfn_display_name : vfat_display_name_t;
+    SIGNAL lfn_long_valid, lfn_truncated : STD_LOGIC;
 
     --------------------------------------------------------------------
-    -- Browser file management: in-place 8.3 rename and FAT32 delete
+    -- Browser file management: in-place 8.3/VFAT rename and FAT32 delete
     --------------------------------------------------------------------
     SIGNAL manage_busy_reg : STD_LOGIC := '0';
     SIGNAL manage_done_reg : STD_LOGIC := '0';
@@ -472,11 +583,32 @@ ARCHITECTURE rtl OF sd_spi_init IS
     SIGNAL manage_delete_reg : STD_LOGIC := '0';
     SIGNAL manage_old_name_reg : STD_LOGIC_VECTOR(87 DOWNTO 0) := (OTHERS => '0');
     SIGNAL manage_new_name_reg : STD_LOGIC_VECTOR(87 DOWNTO 0) := (OTHERS => '0');
+    SIGNAL manage_long_name_reg : vfat_display_name_t := (OTHERS => '0');
+    SIGNAL manage_long_name_length_reg : INTEGER RANGE 0 TO VFAT_DISPLAY_CHARS := 0;
+    SIGNAL manage_lfn_checksum_reg : STD_LOGIC_VECTOR(7 DOWNTO 0) := x"00";
+    SIGNAL manage_lfn_checksum_alias_reg : STD_LOGIC_VECTOR(87 DOWNTO 0) := (OTHERS => '0');
+    SIGNAL manage_lfn_extension_reg : STD_LOGIC_VECTOR(23 DOWNTO 0) := (OTHERS => '0');
+    SIGNAL manage_lfn_checksum_index_reg : INTEGER RANGE 0 TO 11 := 11;
+    SIGNAL manage_lfn_extension_length_reg : INTEGER RANGE 0 TO 3 := 0;
+    SIGNAL manage_lfn_full_length_reg : INTEGER RANGE 0 TO VFAT_DISPLAY_CHARS + 4 := 0;
     SIGNAL manage_found_reg : STD_LOGIC := '0';
     SIGNAL manage_duplicate_reg : STD_LOGIC := '0';
+    SIGNAL manage_long_duplicate_reg : STD_LOGIC := '0';
     SIGNAL manage_lfn_reg : STD_LOGIC := '0';
     SIGNAL manage_read_only_reg : STD_LOGIC := '0';
     SIGNAL manage_prev_lfn_reg : STD_LOGIC := '0';
+    TYPE manage_lfn_lba_array_t IS ARRAY (0 TO 19) OF STD_LOGIC_VECTOR(31 DOWNTO 0);
+    TYPE manage_lfn_slot_array_t IS ARRAY (0 TO 19) OF INTEGER RANGE 0 TO 15;
+    TYPE manage_lfn_byte_array_t IS ARRAY (0 TO 19) OF STD_LOGIC_VECTOR(7 DOWNTO 0);
+    SIGNAL manage_lfn_lba_work_reg : manage_lfn_lba_array_t := (OTHERS => (OTHERS => '0'));
+    SIGNAL manage_lfn_slot_work_reg : manage_lfn_slot_array_t := (OTHERS => 0);
+    SIGNAL manage_lfn_first_byte_work_reg : manage_lfn_byte_array_t := (OTHERS => x"00");
+    SIGNAL manage_lfn_count_work_reg : INTEGER RANGE 0 TO 20 := 0;
+    SIGNAL manage_lfn_lba_reg : manage_lfn_lba_array_t := (OTHERS => (OTHERS => '0'));
+    SIGNAL manage_lfn_slot_reg : manage_lfn_slot_array_t := (OTHERS => 0);
+    SIGNAL manage_lfn_first_byte_reg : manage_lfn_byte_array_t := (OTHERS => x"00");
+    SIGNAL manage_lfn_count_reg : INTEGER RANGE 0 TO 20 := 0;
+    SIGNAL manage_lfn_write_index_reg : INTEGER RANGE 0 TO 19 := 0;
     SIGNAL manage_match_lba_reg : UNSIGNED(31 DOWNTO 0) := (OTHERS => '0');
     SIGNAL manage_match_slot_reg : INTEGER RANGE 0 TO 15 := 0;
     SIGNAL manage_match_first_byte_reg : STD_LOGIC_VECTOR(7 DOWNTO 0) := x"00";
@@ -841,6 +973,7 @@ BEGIN
     browser_has_files <= browser_has_files_reg;
     page_valid <= page_valid_reg;
     page_name <= page_name_reg;
+    page_display_name <= page_display_name_reg;
     page_kind <= page_kind_reg;
     selected_valid <= selected_valid_reg;
     selected_name <= selected_name_reg;
@@ -976,6 +1109,19 @@ BEGIN
         sbiterrb => OPEN,
         dbiterrb => OPEN
     );
+
+    lfn_decoder : ENTITY work.vfat_lfn_decoder
+        PORT MAP(
+            clk => clk,
+            reset => reset,
+            clear => lfn_clear_reg,
+            byte_valid => lfn_byte_valid_reg,
+            entry_byte_index => lfn_byte_index_reg,
+            entry_byte => lfn_byte_data_reg,
+            display_name => lfn_display_name,
+            long_name_valid => lfn_long_valid,
+            name_truncated => lfn_truncated
+        );
 
     --------------------------------------------------------------------
     -- Ableitung eines registrierten SPI-Ticks aus clk
@@ -1140,6 +1286,8 @@ BEGIN
             fdd_format_done_reg <= '0';
             fdd_format_error_reg <= '0';
             manage_done_reg <= '0';
+            lfn_byte_valid_reg <= '0';
+            lfn_clear_reg <= '0';
 
             IF fdd_buffer_write_enable = '1' THEN
                 fdd_sector_buffer_reg(to_integer(unsigned(fdd_buffer_write_addr))) <= fdd_buffer_write_data;
@@ -1156,6 +1304,18 @@ BEGIN
                 save_write_done_reg <= '0';
                 save_write_error_reg <= '0';
                 save_write_status_reg <= SAVE_STATUS_NONE;
+            END IF;
+
+            -- Build the VFAT checksum one alias byte per clock while the
+            -- directory scan is running.  A fully unrolled checksum here
+            -- creates a 19-CARRY4 path into the sector patch RAM.
+            IF manage_busy_reg = '1' AND manage_lfn_checksum_index_reg < 11 THEN
+                manage_lfn_checksum_reg <= STD_LOGIC_VECTOR(
+                    rotate_right(UNSIGNED(manage_lfn_checksum_reg), 1) +
+                    UNSIGNED(manage_lfn_checksum_alias_reg(87 DOWNTO 80)));
+                manage_lfn_checksum_alias_reg <=
+                    manage_lfn_checksum_alias_reg(79 DOWNTO 0) & x"00";
+                manage_lfn_checksum_index_reg <= manage_lfn_checksum_index_reg + 1;
             END IF;
 
             IF reset = '1' OR sd_cd = '1' THEN
@@ -1229,6 +1389,7 @@ BEGIN
                 cached_free_requires_dir_growth_reg <= '0';
                 page_valid_reg <= (OTHERS => '0');
                 page_name_reg <= (OTHERS => (OTHERS => '0'));
+                page_display_name_reg <= (OTHERS => (OTHERS => '0'));
                 page_cluster_reg <= (OTHERS => (OTHERS => '0'));
                 page_size_reg <= (OTHERS => (OTHERS => '0'));
                 page_kind_reg <= (OTHERS => SD_DSK_KIND_UNKNOWN);
@@ -1249,11 +1410,29 @@ BEGIN
                 manage_delete_reg <= '0';
                 manage_old_name_reg <= (OTHERS => '0');
                 manage_new_name_reg <= (OTHERS => '0');
+                manage_long_name_reg <= (OTHERS => '0');
+                manage_long_name_length_reg <= 0;
+                manage_lfn_checksum_reg <= x"00";
+                manage_lfn_checksum_alias_reg <= (OTHERS => '0');
+                manage_lfn_extension_reg <= (OTHERS => '0');
+                manage_lfn_checksum_index_reg <= 11;
+                manage_lfn_extension_length_reg <= 0;
+                manage_lfn_full_length_reg <= 0;
                 manage_found_reg <= '0';
                 manage_duplicate_reg <= '0';
+                manage_long_duplicate_reg <= '0';
                 manage_lfn_reg <= '0';
                 manage_read_only_reg <= '0';
                 manage_prev_lfn_reg <= '0';
+                manage_lfn_lba_work_reg <= (OTHERS => (OTHERS => '0'));
+                manage_lfn_slot_work_reg <= (OTHERS => 0);
+                manage_lfn_first_byte_work_reg <= (OTHERS => x"00");
+                manage_lfn_count_work_reg <= 0;
+                manage_lfn_lba_reg <= (OTHERS => (OTHERS => '0'));
+                manage_lfn_slot_reg <= (OTHERS => 0);
+                manage_lfn_first_byte_reg <= (OTHERS => x"00");
+                manage_lfn_count_reg <= 0;
+                manage_lfn_write_index_reg <= 0;
                 manage_match_lba_reg <= (OTHERS => '0');
                 manage_match_slot_reg <= 0;
                 manage_match_first_byte_reg <= x"00";
@@ -2448,6 +2627,9 @@ BEGIN
 
                             -- Hier wird das ROOT-Directory gelesen
                             IF read_job_reg = JOB_ROOT THEN
+                                lfn_byte_valid_reg <= '1';
+                                lfn_byte_index_reg <= data_index MOD 32;
+                                lfn_byte_data_reg <= rx_byte_v;
                                 IF data_index = 0 THEN
                                     root_sector_first_byte_reg <= rx_byte_v;
                                 END IF;
@@ -2521,6 +2703,13 @@ BEGIN
                                                     dir_entry_name_tmp_reg(87 DOWNTO 80) /= x"E5" AND
                                                     dir_entry_attr_tmp_reg = x"0F" THEN
                                                     manage_prev_lfn_reg <= '1';
+                                                    IF manage_lfn_count_work_reg < 20 THEN
+                                                        manage_lfn_lba_work_reg(manage_lfn_count_work_reg) <=
+                                                            STD_LOGIC_VECTOR(current_lba_reg);
+                                                        manage_lfn_slot_work_reg(manage_lfn_count_work_reg) <= data_index / 32;
+                                                        manage_lfn_first_byte_work_reg(manage_lfn_count_work_reg) <= root_sector_first_byte_reg;
+                                                        manage_lfn_count_work_reg <= manage_lfn_count_work_reg + 1;
+                                                    END IF;
                                                 ELSE
                                                     IF dir_entry_name_tmp_reg(87 DOWNTO 80) /= x"00" AND
                                                         dir_entry_name_tmp_reg(87 DOWNTO 80) /= x"E5" AND
@@ -2530,6 +2719,10 @@ BEGIN
                                                         IF dir_entry_name_tmp_reg = manage_old_name_reg THEN
                                                             manage_found_reg <= '1';
                                                             manage_lfn_reg <= manage_prev_lfn_reg;
+                                                            manage_lfn_lba_reg <= manage_lfn_lba_work_reg;
+                                                            manage_lfn_slot_reg <= manage_lfn_slot_work_reg;
+                                                            manage_lfn_first_byte_reg <= manage_lfn_first_byte_work_reg;
+                                                            manage_lfn_count_reg <= manage_lfn_count_work_reg;
                                                             manage_read_only_reg <= dir_entry_attr_tmp_reg(0);
                                                             manage_match_lba_reg <= current_lba_reg;
                                                             manage_match_slot_reg <= data_index / 32;
@@ -2545,8 +2738,14 @@ BEGIN
                                                             dir_entry_name_tmp_reg = manage_new_name_reg THEN
                                                             manage_duplicate_reg <= '1';
                                                         END IF;
+                                                        IF manage_delete_reg = '0' AND
+                                                            dir_entry_name_tmp_reg /= manage_old_name_reg AND
+                                                            lfn_display_name = manage_long_name_reg THEN
+                                                            manage_long_duplicate_reg <= '1';
+                                                        END IF;
                                                     END IF;
                                                     manage_prev_lfn_reg <= '0';
+                                                    manage_lfn_count_work_reg <= 0;
                                                 END IF;
                                             END IF;
 
@@ -2644,51 +2843,61 @@ BEGIN
                                                                 WHEN 0 =>
                                                                     page_valid_reg(0) <= '1';
                                                                     page_name_reg(0) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(0) <= lfn_display_name;
                                                                     page_cluster_reg(0) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(0) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 1 =>
                                                                     page_valid_reg(1) <= '1';
                                                                     page_name_reg(1) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(1) <= lfn_display_name;
                                                                     page_cluster_reg(1) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(1) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 2 =>
                                                                     page_valid_reg(2) <= '1';
                                                                     page_name_reg(2) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(2) <= lfn_display_name;
                                                                     page_cluster_reg(2) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(2) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 3 =>
                                                                     page_valid_reg(3) <= '1';
                                                                     page_name_reg(3) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(3) <= lfn_display_name;
                                                                     page_cluster_reg(3) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(3) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 4 =>
                                                                     page_valid_reg(4) <= '1';
                                                                     page_name_reg(4) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(4) <= lfn_display_name;
                                                                     page_cluster_reg(4) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(4) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 5 =>
                                                                     page_valid_reg(5) <= '1';
                                                                     page_name_reg(5) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(5) <= lfn_display_name;
                                                                     page_cluster_reg(5) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(5) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 6 =>
                                                                     page_valid_reg(6) <= '1';
                                                                     page_name_reg(6) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(6) <= lfn_display_name;
                                                                     page_cluster_reg(6) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(6) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 7 =>
                                                                     page_valid_reg(7) <= '1';
                                                                     page_name_reg(7) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(7) <= lfn_display_name;
                                                                     page_cluster_reg(7) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(7) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 8 =>
                                                                     page_valid_reg(8) <= '1';
                                                                     page_name_reg(8) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(8) <= lfn_display_name;
                                                                     page_cluster_reg(8) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(8) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN 9 =>
                                                                     page_valid_reg(9) <= '1';
                                                                     page_name_reg(9) <= dir_entry_name_tmp_reg;
+                                                                    page_display_name_reg(9) <= lfn_display_name;
                                                                     page_cluster_reg(9) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                                     page_size_reg(9) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                                 WHEN OTHERS =>
@@ -2702,6 +2911,7 @@ BEGIN
                                                     ELSE
                                                         IF root_total_file_count_reg < 255 THEN
                                                             file_name_reg(root_total_file_count_reg) <= dir_entry_name_tmp_reg;
+                                                            file_display_name_reg(root_total_file_count_reg) <= lfn_display_name;
                                                             file_cluster_reg(root_total_file_count_reg) <= STD_LOGIC_VECTOR(dir_entry_cluster_tmp_reg);
                                                             file_size_reg(root_total_file_count_reg) <= STD_LOGIC_VECTOR(UNSIGNED(rx_byte_v) & dir_entry_size_tmp_reg(23 DOWNTO 0));
                                                             file_kind_reg(root_total_file_count_reg) <= SD_DSK_KIND_UNKNOWN;
@@ -3223,11 +3433,15 @@ BEGIN
                                 root_sectors_left_reg <= to_integer(unsigned(boot_spc_reg));
                             END IF;
                             root_end_seen_reg <= '0';
+                            IF root_chain_advance_reg = '0' THEN
+                                lfn_clear_reg <= '1';
+                            END IF;
                             IF root_chain_advance_reg = '0' AND
                                 (root_scan_job_reg = ROOT_SCAN_DISCOVER OR
                                  root_scan_job_reg = ROOT_SCAN_PAGE_RELOAD) THEN
                                 page_valid_reg <= (OTHERS => '0');
                                 page_name_reg <= (OTHERS => (OTHERS => '0'));
+                                page_display_name_reg <= (OTHERS => (OTHERS => '0'));
                                 page_cluster_reg <= (OTHERS => (OTHERS => '0'));
                                 page_size_reg <= (OTHERS => (OTHERS => '0'));
                                 page_kind_reg <= (OTHERS => SD_DSK_KIND_UNKNOWN);
@@ -3499,6 +3713,30 @@ BEGIN
                                     read_done_reg <= '1';
                                     gap_after_state <= ST_READ_READY;
                                     state <= ST_GAP;
+                                ELSIF save_sector_source_reg = SAVE_SECTOR_PATCH AND
+                                    save_create_phase_reg = SAVE_MANAGE_WRITE_RENAME_LFN THEN
+                                    IF manage_lfn_write_index_reg + 1 < manage_lfn_count_reg THEN
+                                        manage_lfn_write_index_reg <= manage_lfn_write_index_reg + 1;
+                                        save_create_phase_reg <= SAVE_MANAGE_RENAME_LFN;
+                                    current_lba_reg <= UNSIGNED(
+                                        manage_lfn_lba_reg(manage_lfn_write_index_reg + 1));
+                                        read_job_reg <= JOB_PATCH;
+                                        gap_after_state <= ST_PREP_CMD17;
+                                        state <= ST_GAP;
+                                    ELSE
+                                        save_create_phase_reg <= SAVE_CREATE_IDLE;
+                                        manage_busy_reg <= '0';
+                                        manage_done_reg <= '1';
+                                        manage_error_reg <= '0';
+                                        manage_status_reg <= MANAGE_STATUS_NONE;
+                                        browser_cache_valid_reg <= '0';
+                                        browser_page_dirty_reg <= '1';
+                                        browser_rescan_pending_reg <= '1';
+                                        read_done_reg <= '1';
+                                        gap_after_state <= ST_READ_READY;
+                                        state <= ST_GAP;
+                                    END IF;
+
                                 ELSIF save_sector_source_reg = SAVE_SECTOR_PATCH AND
                                     save_create_phase_reg = SAVE_MANAGE_WRITE_RENAME THEN
                                     save_create_phase_reg <= SAVE_CREATE_IDLE;
@@ -4157,7 +4395,48 @@ BEGIN
                         sclk_reg <= '0';
                         mosi_reg <= '1';
 
-                        IF save_create_phase_reg = SAVE_MANAGE_RENAME_DIR THEN
+                        IF save_create_phase_reg = SAVE_MANAGE_RENAME_LFN THEN
+                            save_patch_wr_en_reg <= '1';
+                            save_patch_wr_addr_reg <= STD_LOGIC_VECTOR(to_unsigned(
+                                (manage_lfn_slot_reg(manage_lfn_write_index_reg) * 32) +
+                                save_patch_step_reg, 9));
+                            save_patch_wr_data_reg <= lfn_rename_byte(
+                                manage_long_name_reg,
+                                manage_long_name_length_reg,
+                                manage_lfn_extension_reg,
+                                manage_lfn_checksum_reg,
+                                manage_lfn_extension_length_reg,
+                                manage_lfn_full_length_reg,
+                                manage_lfn_count_reg,
+                                manage_lfn_write_index_reg,
+                                save_patch_step_reg);
+                            IF save_patch_step_reg = 31 THEN
+                                save_create_phase_reg <= SAVE_MANAGE_WRITE_RENAME_LFN;
+                                save_sector_source_reg <= SAVE_SECTOR_PATCH;
+                                save_sector_tx_index_reg <= 0;
+                                IF manage_lfn_slot_reg(manage_lfn_write_index_reg) = 0 THEN
+                                    save_patch_first_byte_reg <= lfn_rename_byte(
+                                        manage_long_name_reg,
+                                        manage_long_name_length_reg,
+                                        manage_lfn_extension_reg,
+                                        manage_lfn_checksum_reg,
+                                        manage_lfn_extension_length_reg,
+                                        manage_lfn_full_length_reg,
+                                        manage_lfn_count_reg,
+                                        manage_lfn_write_index_reg,
+                                        0);
+                                ELSE
+                                    save_patch_first_byte_reg <=
+                                        manage_lfn_first_byte_reg(manage_lfn_write_index_reg);
+                                END IF;
+                                save_patch_rd_addr_reg <= (OTHERS => '0');
+                                save_cmd24_pending_reg <= '1';
+                                state <= ST_SAVE_BUILD_SECTOR;
+                            ELSE
+                                save_patch_step_reg <= save_patch_step_reg + 1;
+                            END IF;
+
+                        ELSIF save_create_phase_reg = SAVE_MANAGE_RENAME_DIR THEN
                             save_patch_wr_en_reg <= '1';
                             save_patch_wr_addr_reg <= STD_LOGIC_VECTOR(
                                 to_unsigned((manage_match_slot_reg * 32) + save_patch_step_reg, 9));
@@ -4481,10 +4760,10 @@ BEGIN
                                 read_done_reg <= '1';
                                 gap_after_state <= ST_READ_READY;
                                 state <= ST_GAP;
-                            ELSIF manage_lfn_reg = '1' THEN
-                                -- Leave long-name groups untouched.  The compact
-                                -- browser manager deliberately handles plain 8.3
-                                -- entries only, avoiding orphaned or stale LFNs.
+                            ELSIF manage_lfn_reg = '1' AND manage_delete_reg = '1' THEN
+                                -- Deleting an LFN-backed file also requires deleting
+                                -- its complete long-name group.  Keep that separate
+                                -- from the rename transaction below.
                                 manage_busy_reg <= '0';
                                 manage_error_reg <= '1';
                                 manage_status_reg <= MANAGE_STATUS_LFN;
@@ -4498,20 +4777,38 @@ BEGIN
                                 read_done_reg <= '1';
                                 gap_after_state <= ST_READ_READY;
                                 state <= ST_GAP;
-                            ELSIF manage_delete_reg = '0' AND manage_duplicate_reg = '1' THEN
+                            ELSIF manage_delete_reg = '0' AND
+                                ((manage_lfn_reg = '0' AND manage_duplicate_reg = '1') OR
+                                 (manage_lfn_reg = '1' AND manage_long_duplicate_reg = '1')) THEN
                                 manage_busy_reg <= '0';
                                 manage_error_reg <= '1';
                                 manage_status_reg <= MANAGE_STATUS_NAME_EXISTS;
                                 read_done_reg <= '1';
                                 gap_after_state <= ST_READ_READY;
                                 state <= ST_GAP;
+                            ELSIF manage_delete_reg = '0' AND
+                                ((manage_lfn_reg = '0' AND manage_long_name_length_reg > 8) OR
+                                 (manage_lfn_reg = '1' AND
+                                  manage_lfn_full_length_reg >
+                                  manage_lfn_count_reg * 13)) THEN
+                                manage_busy_reg <= '0';
+                                manage_error_reg <= '1';
+                                manage_status_reg <= MANAGE_STATUS_LFN_TOO_LONG;
+                                read_done_reg <= '1';
+                                gap_after_state <= ST_READ_READY;
+                                state <= ST_GAP;
                             ELSE
                                 IF manage_delete_reg = '1' THEN
                                     save_create_phase_reg <= SAVE_MANAGE_DELETE_DIR;
+                                    current_lba_reg <= manage_match_lba_reg;
+                                ELSIF manage_lfn_reg = '1' THEN
+                                    save_create_phase_reg <= SAVE_MANAGE_RENAME_LFN;
+                                    manage_lfn_write_index_reg <= 0;
+                                    current_lba_reg <= UNSIGNED(manage_lfn_lba_reg(0));
                                 ELSE
                                     save_create_phase_reg <= SAVE_MANAGE_RENAME_DIR;
+                                    current_lba_reg <= manage_match_lba_reg;
                                 END IF;
-                                current_lba_reg <= manage_match_lba_reg;
                                 read_job_reg <= JOB_PATCH;
                                 gap_after_state <= ST_PREP_CMD17;
                                 state <= ST_GAP;
@@ -4897,12 +5194,14 @@ BEGIN
                                 IF browser_page_fill_base_reg + browser_page_fill_index_reg < root_file_count_reg THEN
                                     page_valid_reg(browser_page_fill_index_reg) <= '1';
                                     page_name_reg(browser_page_fill_index_reg) <= file_name_reg(browser_page_fill_base_reg + browser_page_fill_index_reg);
+                                    page_display_name_reg(browser_page_fill_index_reg) <= file_display_name_reg(browser_page_fill_base_reg + browser_page_fill_index_reg);
                                     page_cluster_reg(browser_page_fill_index_reg) <= file_cluster_reg(browser_page_fill_base_reg + browser_page_fill_index_reg);
                                     page_size_reg(browser_page_fill_index_reg) <= file_size_reg(browser_page_fill_base_reg + browser_page_fill_index_reg);
                                     page_kind_reg(browser_page_fill_index_reg) <= file_kind_reg(browser_page_fill_base_reg + browser_page_fill_index_reg);
                                 ELSE
                                     page_valid_reg(browser_page_fill_index_reg) <= '0';
                                     page_name_reg(browser_page_fill_index_reg) <= (OTHERS => '0');
+                                    page_display_name_reg(browser_page_fill_index_reg) <= (OTHERS => '0');
                                     page_cluster_reg(browser_page_fill_index_reg) <= (OTHERS => '0');
                                     page_size_reg(browser_page_fill_index_reg) <= (OTHERS => '0');
                                     page_kind_reg(browser_page_fill_index_reg) <= SD_DSK_KIND_UNKNOWN;
@@ -5040,11 +5339,34 @@ BEGIN
                             manage_delete_reg <= manage_delete;
                             manage_old_name_reg <= manage_old_name;
                             manage_new_name_reg <= manage_new_name;
+                            manage_long_name_reg <= manage_long_name;
+                            manage_long_name_length_reg <= manage_long_name_length;
+                            manage_lfn_checksum_reg <= x"00";
+                            manage_lfn_checksum_alias_reg <= manage_old_name;
+                            manage_lfn_extension_reg <= manage_old_name(23 DOWNTO 0);
+                            manage_lfn_checksum_index_reg <= 0;
+                            IF manage_old_name(7 DOWNTO 0) /= x"20" THEN
+                                manage_lfn_extension_length_reg <= 3;
+                                manage_lfn_full_length_reg <= manage_long_name_length + 4;
+                            ELSIF manage_old_name(15 DOWNTO 8) /= x"20" THEN
+                                manage_lfn_extension_length_reg <= 2;
+                                manage_lfn_full_length_reg <= manage_long_name_length + 3;
+                            ELSIF manage_old_name(23 DOWNTO 16) /= x"20" THEN
+                                manage_lfn_extension_length_reg <= 1;
+                                manage_lfn_full_length_reg <= manage_long_name_length + 2;
+                            ELSE
+                                manage_lfn_extension_length_reg <= 0;
+                                manage_lfn_full_length_reg <= manage_long_name_length;
+                            END IF;
                             manage_found_reg <= '0';
                             manage_duplicate_reg <= '0';
+                            manage_long_duplicate_reg <= '0';
                             manage_lfn_reg <= '0';
                             manage_read_only_reg <= '0';
                             manage_prev_lfn_reg <= '0';
+                            manage_lfn_count_work_reg <= 0;
+                            manage_lfn_count_reg <= 0;
+                            manage_lfn_write_index_reg <= 0;
                             manage_match_lba_reg <= (OTHERS => '0');
                             manage_match_slot_reg <= 0;
                             manage_match_first_byte_reg <= x"00";
@@ -5318,6 +5640,7 @@ BEGIN
                             IF browser_cache_valid_reg = '1' THEN
                                 page_valid_reg <= (OTHERS => '0');
                                 page_name_reg <= (OTHERS => (OTHERS => '0'));
+                                page_display_name_reg <= (OTHERS => (OTHERS => '0'));
                                 page_cluster_reg <= (OTHERS => (OTHERS => '0'));
                                 page_size_reg <= (OTHERS => (OTHERS => '0'));
                                 page_kind_reg <= (OTHERS => SD_DSK_KIND_UNKNOWN);

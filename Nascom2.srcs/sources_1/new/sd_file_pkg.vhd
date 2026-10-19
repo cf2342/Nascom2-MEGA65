@@ -1,5 +1,6 @@
 LIBRARY ieee;
 USE ieee.std_logic_1164.ALL;
+USE work.vfat_name_pkg.ALL;
 
 PACKAGE sd_file_pkg IS
     CONSTANT SD_BROWSER_MAX_FILES : INTEGER := 255;
@@ -12,6 +13,8 @@ PACKAGE sd_file_pkg IS
     TYPE sd_size_array_t IS ARRAY (0 TO SD_BROWSER_LAST_INDEX) OF STD_LOGIC_VECTOR(31 DOWNTO 0);
     TYPE sd_page_valid_array_t IS ARRAY (0 TO SD_BROWSER_PAGE_LAST) OF STD_LOGIC;
     TYPE sd_page_name_array_t IS ARRAY (0 TO SD_BROWSER_PAGE_LAST) OF STD_LOGIC_VECTOR(87 DOWNTO 0);
+    TYPE sd_display_name_array_t IS ARRAY (0 TO SD_BROWSER_LAST_INDEX) OF vfat_display_name_t;
+    TYPE sd_page_display_name_array_t IS ARRAY (0 TO SD_BROWSER_PAGE_LAST) OF vfat_display_name_t;
     TYPE sd_kind_array_t IS ARRAY (0 TO SD_BROWSER_LAST_INDEX) OF STD_LOGIC_VECTOR(1 DOWNTO 0);
     TYPE sd_page_kind_array_t IS ARRAY (0 TO SD_BROWSER_PAGE_LAST) OF STD_LOGIC_VECTOR(1 DOWNTO 0);
     CONSTANT SD_DSK_KIND_UNKNOWN : STD_LOGIC_VECTOR(1 DOWNTO 0) := "00";
